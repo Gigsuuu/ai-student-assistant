@@ -9,10 +9,26 @@
   }
 
   body {
-    background-color: #0f172a;
+    background-color: #020617;
     color: #f8fafc;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+}
+
+/* Smooth Entrance Animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* 3D Flashcard Flip Animations */
@@ -40,15 +56,15 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: #0f172a;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #475569;
+  background: #334155;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #475569;
 }

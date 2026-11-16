@@ -85,15 +85,15 @@ export default function Home() {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
+    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 antialiased selection:bg-indigo-600 selection:text-white">
       {/* Top Application Header */}
       <Header />
 
-      {/* Main Dashboard Layout */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 items-start">
+      {/* Main Dashboard Layout with responsive wide-screen & projector optimizations */}
+      <main className="flex-1 max-w-7xl 2xl:max-w-[1700px] w-full mx-auto p-3.5 sm:p-5 lg:p-6 2xl:p-8 flex flex-col gap-5 sm:gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 xl:gap-6 2xl:gap-8 flex-1 items-start">
           {/* Left Column: Document Ingestion (5 columns on large screens) */}
-          <div className="lg:col-span-5 flex flex-col h-[650px] lg:sticky lg:top-20">
+          <div className="lg:col-span-5 flex flex-col min-h-[580px] lg:h-[calc(100vh-9.5rem)] lg:min-h-[640px] lg:max-h-[840px] 2xl:max-h-[940px] lg:sticky lg:top-20">
             <StudyInputPanel
               studyText={studyText}
               setStudyText={setStudyText}
@@ -104,9 +104,9 @@ export default function Home() {
           </div>
 
           {/* Right Column: 4 Feature Tabs (7 columns on large screens) */}
-          <div className="lg:col-span-7 flex flex-col h-[650px] bg-slate-900/60 rounded-2xl border border-slate-800 shadow-xl overflow-hidden">
+          <div className="lg:col-span-7 flex flex-col min-h-[580px] lg:h-[calc(100vh-9.5rem)] lg:min-h-[640px] lg:max-h-[840px] 2xl:max-h-[940px] bg-slate-900/70 rounded-2xl border border-slate-800 shadow-xl overflow-hidden focus-within:border-slate-700/80 transition-all">
             {/* Feature Tabs Navigation Bar */}
-            <div className="p-2.5 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between gap-1 overflow-x-auto">
+            <div className="p-2 sm:p-2.5 border-b border-slate-800/90 bg-slate-900/95 flex items-center justify-between gap-1.5 overflow-x-auto">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
@@ -115,24 +115,24 @@ export default function Home() {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex-1 min-w-[130px] flex items-center gap-2 p-2.5 rounded-xl text-left transition-all ${
+                    className={`flex-1 min-w-[130px] flex items-center gap-2 p-2.5 rounded-xl text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-900 ${
                       isActive
-                        ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/25"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                        ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 font-semibold"
+                        : "text-slate-300 hover:text-white hover:bg-slate-800/80 font-medium"
                     }`}
                   >
                     <div
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                        isActive ? "bg-white/20 text-white" : "bg-slate-800 text-slate-400"
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                        isActive ? "bg-white/20 text-white" : "bg-slate-800 text-indigo-400"
                       }`}
                     >
                       <Icon className="w-4 h-4" />
                     </div>
                     <div className="truncate">
-                      <p className="text-xs font-semibold truncate leading-tight">{tab.label}</p>
+                      <p className="text-xs font-bold truncate leading-tight">{tab.label}</p>
                       <p
                         className={`text-[10px] truncate ${
-                          isActive ? "text-indigo-200" : "text-slate-500"
+                          isActive ? "text-indigo-200" : "text-slate-400"
                         }`}
                       >
                         {tab.tag}
@@ -144,10 +144,12 @@ export default function Home() {
             </div>
 
             {/* Active Tab View Body with DOM persistence & document-keyed caching */}
-            <div className="p-4 sm:p-5 flex-1 overflow-hidden flex flex-col bg-slate-950/40">
+            <div className="p-3.5 sm:p-5 flex-1 overflow-hidden flex flex-col bg-slate-950/40">
               <div className={activeTab === "summary" ? "h-full flex flex-col" : "hidden"}>
                 <SummarizerTab
                   studyText={studyText}
+                  fileName={fileName}
+                  flashcards={currentCachedFlashcards || []}
                   cachedSummary={currentCachedSummary}
                   onSaveSummary={handleSaveSummary}
                 />
@@ -178,7 +180,7 @@ export default function Home() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-800/80 py-4 text-center text-xs text-slate-500">
+      <footer className="border-t border-slate-800/90 py-4 text-center text-xs text-slate-400 font-medium bg-slate-950/60">
         Built for Computer Engineering Hackathon with Next.js, Tailwind CSS & Google Gemini API
       </footer>
     </div>
