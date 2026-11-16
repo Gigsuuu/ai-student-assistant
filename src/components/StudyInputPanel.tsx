@@ -8,6 +8,7 @@ import {
   BookOpen,
   Sparkles,
   AlertCircle,
+  AlertTriangle,
   Loader2,
   FileCheck,
   Hash,
@@ -40,10 +41,13 @@ export function StudyInputPanel({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB limit
+
   // Calculate live statistics cleanly
   const trimmed = studyText.trim();
   const wordCount = trimmed ? trimmed.split(/\s+/).length : 0;
   const charCount = studyText.length;
+  const isOverCharLimit = charCount > 12000;
   // Average reading speed: ~200 words per minute; 0 when empty
   const readingTimeMins = wordCount > 0 ? Math.max(1, Math.ceil(wordCount / 200)) : 0;
 
@@ -59,14 +63,19 @@ export function StudyInputPanel({
 
     reader.onload = (e) => {
       const content = e.target?.result as string;
-      setStudyText(content || "");
+      if (!content || content.trim().length === 0) {
+        setErrorMessage("The uploaded text file is empty. Please upload a file containing study notes.");
+        setIsLoadingFile(false);
+        return;
+      }
+      setStudyText(content);
       setFileName(file.name);
       setPdfPages(null);
       setIsLoadingFile(false);
     };
 
     reader.onerror = () => {
-      setErrorMessage("Failed to read text file. Please try again.");
+      setErrorMessage("Failed to read text file. The file may be unreadable or locked.");
       setIsLoadingFile(false);
     };
 
@@ -89,10 +98,14 @@ export function StudyInputPanel({
         body: formData,
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        throw new Error(data.error || "Failed to parse PDF document.");
+        throw new Error(data?.error || `Failed to parse PDF document (HTTP ${res.status}).`);
+      }
+
+      if (!data?.text || data.text.trim().length === 0) {
+        throw new Error("The uploaded PDF contains no extractable text. It may contain scanned images without OCR.");
       }
 
       setStudyText(data.text);
@@ -107,18 +120,37 @@ export function StudyInputPanel({
   };
 
   /**
-   * Processes selected or dropped file (.txt or .pdf)
+   * Validates and processes selected or dropped file (.txt or .pdf)
+   * Guarded against oversized (>10MB), empty (0 bytes), and unsupported formats
    */
   const processFile = (file: File) => {
+    if (isLoadingFile) return; // Prevent simultaneous file uploads
     setErrorMessage(null);
-    const extension = file.name.split(".").pop()?.toLowerCase();
 
-    if (extension === "txt") {
+    // 1. Check for empty files
+    if (file.size === 0) {
+      setErrorMessage("The selected file is empty (0 bytes). Please upload a document with study content.");
+      return;
+    }
+
+    // 2. Enforce 10 MB size limit
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      setErrorMessage(`File exceeds the 10 MB limit (${sizeMB} MB). Please upload a smaller document or paste text directly.`);
+      return;
+    }
+
+    // 3. Validate supported extension and MIME type
+    const extension = file.name ? file.name.split(".").pop()?.toLowerCase() : "";
+    const isTxt = extension === "txt" || file.type === "text/plain";
+    const isPdf = extension === "pdf" || file.type === "application/pdf";
+
+    if (isTxt) {
       handleTextFile(file);
-    } else if (extension === "pdf") {
+    } else if (isPdf) {
       handlePdfFile(file);
     } else {
-      setErrorMessage("Unsupported file format. Please upload a .txt or .pdf file.");
+      setErrorMessage(`Unsupported file format (${file.name || "unknown"}). Only .pdf and .txt files are supported.`);
     }
   };
 
@@ -234,6 +266,24 @@ export function StudyInputPanel({
             >
               <X className="w-3.5 h-3.5" />
             </button>
+          </div>
+        )}
+
+        {/* 12,000-Character Performance Warning Badge */}
+        {isOverCharLimit && (
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs shadow-sm">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-bold text-amber-300 flex items-center gap-2">
+                <span>Fast Performance Notice</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 font-mono">
+                  {charCount.toLocaleString()} chars
+                </span>
+              </p>
+              <p className="text-amber-200/90 mt-0.5 leading-relaxed">
+                Your notes exceed 12,000 characters. For fast, reliable performance and optimal response times, only the first <strong className="text-white font-semibold">12,000 characters</strong> are analyzed across AI features.
+              </p>
+            </div>
           </div>
         )}
 
@@ -387,7 +437,15 @@ Topic: Cache Memory & Virtual Memory
           <div className="flex items-center gap-1.5" title="Total Characters">
             <Hash className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <span>
-              <strong className="text-white font-bold">{charCount.toLocaleString()}</strong> chars
+              <strong className={isOverCharLimit ? "text-amber-400 font-bold" : "text-white font-bold"}>
+                {charCount.toLocaleString()}
+              </strong>{" "}
+              chars
+              {isOverCharLimit && (
+                <span className="ml-1.5 text-[10px] text-amber-300 font-semibold bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/30">
+                  First 12k Analyzed
+                </span>
+              )}
             </span>
           </div>
           <div className="flex items-center gap-1.5" title="Estimated Reading Time">

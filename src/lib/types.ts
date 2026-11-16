@@ -34,6 +34,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  isError?: boolean;
+  failedQuestion?: string;
 }
 
 export interface ParsePdfResponse {

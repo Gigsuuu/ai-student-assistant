@@ -42,8 +42,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Truncate document text to 8,000 characters max before building prompt
-    const truncatedText = truncateDocument(text, 8000);
+    // Truncate document text to 12,000 characters max before building prompt
+    const truncatedText = truncateDocument(text, 12000);
 
     const prompt = `
 You are a Computer Engineering professor creating an exam review quiz.
@@ -84,13 +84,54 @@ ${truncatedText}
       timeoutMs: 30000,
     });
 
-    const parsedData = cleanAndParseJSON<QuizResponseWrapper>(responseText);
-
-    if (!parsedData.questions || !Array.isArray(parsedData.questions)) {
-      throw new Error("Invalid response schema: 'questions' array missing.");
+    let parsedData: QuizResponseWrapper;
+    try {
+      parsedData = cleanAndParseJSON<QuizResponseWrapper>(responseText);
+    } catch (parseErr) {
+      console.error("[/api/quiz] JSON parse failed on text:", responseText.slice(0, 300), parseErr);
+      return NextResponse.json(
+        {
+          error: "AI response contained invalid or malformed JSON formatting. Please retry generation.",
+          isParseError: true,
+        },
+        { status: 502 }
+      );
     }
 
-    return NextResponse.json({ questions: parsedData.questions });
+    if (!parsedData || !parsedData.questions || !Array.isArray(parsedData.questions) || parsedData.questions.length === 0) {
+      return NextResponse.json(
+        {
+          error: "The AI did not return a valid list of quiz questions. Please retry generation.",
+          isParseError: true,
+        },
+        { status: 502 }
+      );
+    }
+
+    // Defensive normalization of questions to ensure no crashing in frontend
+    const validatedQuestions: QuizQuestion[] = parsedData.questions
+      .filter((q) => q && typeof q.question === "string" && Array.isArray(q.options))
+      .map((q, idx) => ({
+        id: typeof q.id === "number" ? q.id : idx + 1,
+        question: q.question.trim(),
+        options: Array.isArray(q.options) ? q.options.map((opt) => String(opt || "").trim()) : [],
+        correctIndex: typeof q.correctIndex === "number" && q.correctIndex >= 0 && q.correctIndex < (q.options?.length || 4)
+          ? q.correctIndex
+          : 0,
+        explanation: typeof q.explanation === "string" ? q.explanation.trim() : "Correct answer based on the lecture material.",
+      }));
+
+    if (validatedQuestions.length === 0) {
+      return NextResponse.json(
+        {
+          error: "Quiz questions were incomplete or malformed. Please retry generation.",
+          isParseError: true,
+        },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({ questions: validatedQuestions });
   } catch (error: unknown) {
     const err = error as Error;
     console.error("[/api/quiz Error]:", err);
