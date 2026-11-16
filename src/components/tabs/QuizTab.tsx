@@ -30,6 +30,8 @@ export function QuizTab({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const isNotesEmpty = !studyText.trim();
+
   // Sync state when cachedQuiz for the current document changes
   useEffect(() => {
     if (cachedQuiz) {
@@ -42,8 +44,11 @@ export function QuizTab({
   }, [cachedQuiz]);
 
   const handleGenerateQuiz = async () => {
-    if (!studyText.trim()) {
-      setErrorMessage("Please enter or upload study notes on the left panel first.");
+    // Guard against simultaneous or empty submissions
+    if (isLoading || isNotesEmpty) {
+      if (isNotesEmpty) {
+        setErrorMessage("Please enter or upload study notes on the left panel first.");
+      }
       return;
     }
 
@@ -58,7 +63,17 @@ export function QuizTab({
         body: JSON.stringify({ text: studyText }),
       });
 
-      const data = await res.json().catch(() => null);
+      let data = await res.json().catch(() => null);
+
+      // Handle raw string responses defensively if returned by any proxy
+      if (typeof data === "string") {
+        try {
+          const stripped = data.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+          data = JSON.parse(stripped);
+        } catch {
+          // Keep raw data
+        }
+      }
 
       if (!res.ok) {
         throw new Error(
@@ -66,16 +81,16 @@ export function QuizTab({
         );
       }
 
-      const newQuestions = data?.questions || [];
-      if (newQuestions.length === 0) {
-        throw new Error("No quiz questions were returned by the API.");
+      const newQuestions = data?.questions;
+      if (!newQuestions || !Array.isArray(newQuestions) || newQuestions.length === 0) {
+        throw new Error("The AI returned a malformed quiz format. Please click Retry Generation.");
       }
 
       setQuestions(newQuestions);
       onSaveQuiz?.({ questions: newQuestions, userAnswers: {} });
     } catch (err: unknown) {
       const error = err as Error;
-      setErrorMessage(error.message || "An unexpected error occurred.");
+      setErrorMessage(error.message || "An unexpected error occurred while generating the quiz.");
     } finally {
       setIsLoading(false);
     }
@@ -139,9 +154,15 @@ export function QuizTab({
             </button>
           )}
 
+          {isNotesEmpty && !isLoading && (
+            <span className="text-[11px] text-slate-400 italic">
+              Add study notes on the left to generate
+            </span>
+          )}
+
           <button
             onClick={handleGenerateQuiz}
-            disabled={isLoading || !studyText.trim()}
+            disabled={isLoading || isNotesEmpty}
             className="flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg shadow-indigo-600/25 transition-all active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
           >
             {isLoading ? (
@@ -159,11 +180,21 @@ export function QuizTab({
         </div>
       </div>
 
-      {/* Error Alert */}
+      {/* Error Notice with Clean Retry Generation Button */}
       {errorMessage && (
-        <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs shadow-sm">
-          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-          <p className="font-medium">{errorMessage}</p>
+        <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs shadow-sm">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <p className="font-medium">{errorMessage}</p>
+          </div>
+          <button
+            onClick={handleGenerateQuiz}
+            disabled={isLoading || isNotesEmpty}
+            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/25 hover:bg-rose-500/35 text-rose-100 border border-rose-500/45 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Retry Generation</span>
+          </button>
         </div>
       )}
 

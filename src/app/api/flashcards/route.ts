@@ -42,8 +42,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Truncate document text to 8,000 characters max before building prompt
-    const truncatedText = truncateDocument(text, 8000);
+    // Truncate document text to 12,000 characters max before building prompt
+    const truncatedText = truncateDocument(text, 12000);
 
     const prompt = `
 You are an engineering tutor creating digital revision flashcards.
@@ -78,13 +78,51 @@ ${truncatedText}
       timeoutMs: 30000,
     });
 
-    const parsedData = cleanAndParseJSON<FlashcardResponseWrapper>(responseText);
-
-    if (!parsedData.flashcards || !Array.isArray(parsedData.flashcards)) {
-      throw new Error("Invalid response schema: 'flashcards' array missing.");
+    let parsedData: FlashcardResponseWrapper;
+    try {
+      parsedData = cleanAndParseJSON<FlashcardResponseWrapper>(responseText);
+    } catch (parseErr) {
+      console.error("[/api/flashcards] JSON parse failed on text:", responseText.slice(0, 300), parseErr);
+      return NextResponse.json(
+        {
+          error: "AI response contained invalid or malformed JSON formatting. Please retry generation.",
+          isParseError: true,
+        },
+        { status: 502 }
+      );
     }
 
-    return NextResponse.json({ flashcards: parsedData.flashcards });
+    if (!parsedData || !parsedData.flashcards || !Array.isArray(parsedData.flashcards) || parsedData.flashcards.length === 0) {
+      return NextResponse.json(
+        {
+          error: "The AI did not return a valid list of flashcards. Please retry generation.",
+          isParseError: true,
+        },
+        { status: 502 }
+      );
+    }
+
+    // Defensive normalization of flashcards to prevent crashes in the frontend
+    const validatedCards: FlashcardItem[] = parsedData.flashcards
+      .filter((card) => card && (card.term || card.definition))
+      .map((card, idx) => ({
+        id: typeof card.id === "number" ? card.id : idx + 1,
+        term: String(card.term || "Key Term").trim(),
+        definition: String(card.definition || "No definition provided.").trim(),
+        category: typeof card.category === "string" ? card.category.trim() : undefined,
+      }));
+
+    if (validatedCards.length === 0) {
+      return NextResponse.json(
+        {
+          error: "Flashcards were incomplete or malformed. Please retry generation.",
+          isParseError: true,
+        },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({ flashcards: validatedCards });
   } catch (error: unknown) {
     const err = error as Error;
     console.error("[/api/flashcards Error]:", err);

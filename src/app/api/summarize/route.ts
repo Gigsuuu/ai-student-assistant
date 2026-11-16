@@ -38,8 +38,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Truncate document text to 8,000 characters max before building prompt
-    const truncatedText = truncateDocument(text, 8000);
+    // Truncate document text to 12,000 characters max before building prompt
+    const truncatedText = truncateDocument(text, 12000);
 
     const prompt = `
 You are an expert Computer Engineering professor and academic tutor.
@@ -81,7 +81,34 @@ ${truncatedText}
       timeoutMs: 30000,
     });
 
-    const parsedSummary = cleanAndParseJSON<SummaryData>(responseText);
+    let parsedSummary: SummaryData;
+    try {
+      parsedSummary = cleanAndParseJSON<SummaryData>(responseText);
+    } catch (parseErr) {
+      console.error("[/api/summarize] JSON parse failed on text:", responseText.slice(0, 300), parseErr);
+      return NextResponse.json(
+        {
+          error: "AI response contained invalid or malformed JSON formatting. Please retry generation.",
+          isParseError: true,
+        },
+        { status: 502 }
+      );
+    }
+
+    if (
+      !parsedSummary ||
+      !Array.isArray(parsedSummary.keyConcepts) ||
+      !Array.isArray(parsedSummary.bulletTakeaways) ||
+      !Array.isArray(parsedSummary.importantDefinitions)
+    ) {
+      return NextResponse.json(
+        {
+          error: "Summary data returned by AI was incomplete or malformed. Please retry generation.",
+          isParseError: true,
+        },
+        { status: 502 }
+      );
+    }
 
     return NextResponse.json({ summary: parsedSummary });
   } catch (error: unknown) {

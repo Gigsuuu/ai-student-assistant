@@ -11,6 +11,7 @@ import {
   Loader2,
   AlertCircle,
   HelpCircle,
+  RotateCcw,
 } from "lucide-react";
 import { ChatMessage } from "@/lib/types";
 
@@ -30,7 +31,9 @@ export function ChatTab({ studyText }: ChatTabProps) {
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastFailedQuestion, setLastFailedQuestion] = useState<string | null>(null);
 
+  const isNotesEmpty = !studyText.trim();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -42,16 +45,25 @@ export function ChatTab({ studyText }: ChatTabProps) {
   }, [messages, isLoading]);
 
   const handleSendMessage = async (textToSend?: string) => {
+    // Guard against simultaneous submissions or empty notes
+    if (isLoading) return;
     const question = (textToSend || inputMessage).trim();
-    if (!question || isLoading) return;
+    if (!question) return;
 
-    if (!studyText.trim()) {
+    if (isNotesEmpty) {
       setErrorMessage("Please enter or upload study notes on the left panel first.");
       return;
     }
 
     setErrorMessage(null);
+    setLastFailedQuestion(null);
     setInputMessage("");
+
+    // If retrying from an error state, strip the previous failed assistant message
+    let baseHistory = messages;
+    if (baseHistory.length > 0 && baseHistory[baseHistory.length - 1].isError) {
+      baseHistory = baseHistory.slice(0, -1);
+    }
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -60,21 +72,24 @@ export function ChatTab({ studyText }: ChatTabProps) {
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
 
-    const newHistory = [...messages, userMsg];
+    const newHistory = [...baseHistory, userMsg];
     setMessages(newHistory);
     setIsLoading(true);
 
     try {
+      // Bound conversation history to last 10 messages max to prevent payload overflow
+      const boundedHistory = newHistory.slice(-10).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: question,
           context: studyText,
-          history: messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          history: boundedHistory,
         }),
       });
 
@@ -96,7 +111,21 @@ export function ChatTab({ studyText }: ChatTabProps) {
       setMessages([...newHistory, botMsg]);
     } catch (err: unknown) {
       const error = err as Error;
-      setErrorMessage(error.message || "An error occurred while answering.");
+      const friendlyErr = error.message || "Failed to generate an answer from your notes.";
+      setErrorMessage(friendlyErr);
+      setLastFailedQuestion(question);
+
+      // Friendly retry message in chat thread
+      const friendlyBotErrorMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "I had trouble generating an answer based on your lecture notes. Please click Retry below to try again.",
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        isError: true,
+        failedQuestion: question,
+      };
+
+      setMessages([...newHistory, friendlyBotErrorMsg]);
     } finally {
       setIsLoading(false);
     }
@@ -104,12 +133,15 @@ export function ChatTab({ studyText }: ChatTabProps) {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    handleSendMessage();
+    if (!isLoading && !isNotesEmpty && inputMessage.trim()) {
+      handleSendMessage();
+    }
   };
 
   const handleClearHistory = () => {
     setMessages([]);
     setErrorMessage(null);
+    setLastFailedQuestion(null);
   };
 
   return (
@@ -138,11 +170,23 @@ export function ChatTab({ studyText }: ChatTabProps) {
         )}
       </div>
 
-      {/* Error Alert */}
+      {/* Error Alert with Friendly Retry */}
       {errorMessage && (
-        <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs shadow-sm">
-          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-          <p className="font-medium">{errorMessage}</p>
+        <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs shadow-sm">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <p className="font-medium">{errorMessage}</p>
+          </div>
+          {lastFailedQuestion && (
+            <button
+              onClick={() => handleSendMessage(lastFailedQuestion)}
+              disabled={isLoading || isNotesEmpty}
+              className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/25 hover:bg-rose-500/35 text-rose-100 border border-rose-500/45 transition-colors disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Retry Question</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -173,8 +217,13 @@ export function ChatTab({ studyText }: ChatTabProps) {
                   <button
                     key={idx}
                     type="button"
-                    onClick={() => handleSendMessage(prompt)}
-                    className="p-2.5 rounded-xl text-left text-xs bg-slate-950/70 hover:bg-slate-950 border border-slate-800 hover:border-indigo-500/40 text-slate-200 hover:text-white transition-all flex items-start gap-2 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 active:scale-[0.98]"
+                    onClick={() => !isNotesEmpty && handleSendMessage(prompt)}
+                    disabled={isNotesEmpty || isLoading}
+                    className={`p-2.5 rounded-xl text-left text-xs transition-all flex items-start gap-2 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                      isNotesEmpty
+                        ? "bg-slate-950/40 border border-slate-850 text-slate-500 cursor-not-allowed"
+                        : "bg-slate-950/70 hover:bg-slate-950 border border-slate-800 hover:border-indigo-500/40 text-slate-200 hover:text-white active:scale-[0.98]"
+                    }`}
                   >
                     <HelpCircle className="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5" />
                     <span className="leading-snug">{prompt}</span>
@@ -197,6 +246,8 @@ export function ChatTab({ studyText }: ChatTabProps) {
                   className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold ${
                     msg.role === "user"
                       ? "bg-indigo-600 text-white shadow-sm"
+                      : msg.isError
+                      ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
                       : "bg-slate-800 text-indigo-400 border border-slate-700"
                   }`}
                 >
@@ -208,13 +259,30 @@ export function ChatTab({ studyText }: ChatTabProps) {
                   className={`p-3.5 rounded-2xl text-xs leading-relaxed ${
                     msg.role === "user"
                       ? "bg-indigo-600 text-white rounded-tr-none shadow-md shadow-indigo-600/20 font-medium"
+                      : msg.isError
+                      ? "bg-rose-950/40 text-rose-100 border border-rose-500/35 rounded-tl-none whitespace-pre-wrap font-sans shadow-sm"
                       : "bg-slate-950/90 text-slate-100 border border-slate-800 rounded-tl-none whitespace-pre-wrap font-sans shadow-sm"
                   }`}
                 >
                   <div>{msg.content}</div>
+
+                  {msg.isError && msg.failedQuestion && (
+                    <div className="mt-2.5 pt-2 border-t border-rose-500/25 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage(msg.failedQuestion)}
+                        disabled={isLoading || isNotesEmpty}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-500/20 hover:bg-rose-500/35 text-rose-100 border border-rose-500/40 transition-colors disabled:opacity-50 active:scale-[0.98]"
+                      >
+                        <RotateCcw className="w-3 h-3 text-rose-300" />
+                        <span>Retry Question</span>
+                      </button>
+                    </div>
+                  )}
+
                   <div
                     className={`text-[10px] mt-1.5 ${
-                      msg.role === "user" ? "text-indigo-200 text-right" : "text-slate-400"
+                      msg.role === "user" ? "text-indigo-200 text-right" : msg.isError ? "text-rose-400" : "text-slate-400"
                     }`}
                   >
                     {msg.timestamp}
@@ -247,34 +315,41 @@ export function ChatTab({ studyText }: ChatTabProps) {
         )}
       </div>
 
-      {/* Input Message Form */}
-      <form onSubmit={handleSubmit} className="flex items-center gap-2">
-        <input
-          type="text"
-          value={inputMessage}
-          onChange={(e) => setInputMessage(e.target.value)}
-          placeholder={
-            studyText.trim()
-              ? "Ask a question about the study notes (e.g., 'What happens during a TLB miss?')..."
-              : "Please upload or paste notes on the left first..."
-          }
-          disabled={isLoading || !studyText.trim()}
-          className="flex-1 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700/80 text-slate-100 text-xs placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/60 focus:border-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-        />
+      {/* Input Message Form with Subtle Helper Prompt */}
+      <div className="flex flex-col gap-1.5">
+        {isNotesEmpty && (
+          <p className="text-[11px] text-slate-400 italic px-1">
+            Add or paste study notes on the left panel to enable academic chat.
+          </p>
+        )}
+        <form onSubmit={handleSubmit} className="flex items-center gap-2">
+          <input
+            type="text"
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            placeholder={
+              isNotesEmpty
+                ? "Please upload or paste notes on the left first to ask questions..."
+                : "Ask a question about the study notes (e.g., 'What happens during a TLB miss?')..."
+            }
+            disabled={isLoading || isNotesEmpty}
+            className="flex-1 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700/80 text-slate-100 text-xs placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/60 focus:border-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          />
 
-        <button
-          type="submit"
-          disabled={isLoading || !inputMessage.trim() || !studyText.trim()}
-          className="p-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg shadow-indigo-600/20 transition-all active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
-          title="Send Question"
-        >
-          {isLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Send className="w-4 h-4" />
-          )}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={isLoading || !inputMessage.trim() || isNotesEmpty}
+            className="p-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg shadow-indigo-600/20 transition-all active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+            title={isNotesEmpty ? "Upload study notes on the left first" : "Send Question"}
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

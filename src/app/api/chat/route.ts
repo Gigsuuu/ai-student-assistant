@@ -45,11 +45,11 @@ export async function POST(req: NextRequest) {
 
     const { message, context, history = [] } = body;
 
-    // Truncate document context to 8,000 characters max before building prompt
-    const truncatedContext = truncateDocument(context, 8000);
+    // Truncate document context to 12,000 characters max before building prompt
+    const truncatedContext = truncateDocument(context, 12000);
 
-    // Build chat contents from history (limited to last 4 messages to keep context focused)
-    const recentHistory = history.slice(-4);
+    // Bound conversation history to last 10 messages max to prevent payload overflow
+    const recentHistory = (Array.isArray(history) ? history : []).slice(-10);
 
     let prompt = `You are an expert, encouraging Academic Teaching Assistant for Computer Engineering students.
 Your mission is to help the student understand and master the specific lecture material provided in the STUDY CONTEXT.
@@ -68,9 +68,11 @@ ${truncatedContext}
 `;
 
     if (recentHistory.length > 0) {
-      prompt += `CONVERSATION HISTORY:\n`;
+      prompt += `CONVERSATION HISTORY (Last ${recentHistory.length} turns):\n`;
       recentHistory.forEach((msg) => {
-        prompt += `${msg.role === "user" ? "Student" : "TA Assistant"}: ${msg.content}\n`;
+        // Guard individual message content to 1,000 chars max
+        const cleanContent = typeof msg.content === "string" ? msg.content.slice(0, 1000).trim() : "";
+        prompt += `${msg.role === "user" ? "Student" : "TA Assistant"}: ${cleanContent}\n`;
       });
       prompt += `\n`;
     }

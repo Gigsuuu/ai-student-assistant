@@ -185,23 +185,59 @@ export async function callGeminiDirect({
 
 /**
  * Helper to safely extract and parse JSON from a Gemini response string.
- * Strips out leading/trailing markdown code blocks (e.g. ```json ... ```) if present.
+ * Strips out markdown code fences (```json ... ```), extracts valid JSON object/array
+ * boundaries, and handles common formatting quirks like trailing commas.
  */
 export function cleanAndParseJSON<T>(rawText: string): T {
-  let cleaned = rawText.trim();
+  if (!rawText || typeof rawText !== "string") {
+    throw new Error("Cannot parse JSON from empty or invalid response string.");
+  }
 
-  // Strip Markdown code fences if the model wrapped the JSON in ```json ... ```
-  if (cleaned.startsWith("```")) {
+  let cleaned = rawText.trim().replace(/^\uFEFF/, "");
+
+  // 1. Extract JSON from within Markdown code blocks (e.g. ```json ... ``` or ``` ... ```)
+  const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/i;
+  const match = cleaned.match(codeBlockRegex);
+  if (match && match[1]) {
+    cleaned = match[1].trim();
+  } else if (cleaned.startsWith("```")) {
     cleaned = cleaned.replace(/^```(?:json)?\s*/i, "");
     cleaned = cleaned.replace(/\s*```$/, "");
     cleaned = cleaned.trim();
   }
 
+  // 2. If preamble or trailing narrative text exists, slice to outer JSON boundaries { ... } or [ ... ]
+  const firstBrace = cleaned.indexOf("{");
+  const firstBracket = cleaned.indexOf("[");
+  let startIdx = -1;
+  if (firstBrace !== -1 && firstBracket !== -1) {
+    startIdx = Math.min(firstBrace, firstBracket);
+  } else if (firstBrace !== -1) {
+    startIdx = firstBrace;
+  } else if (firstBracket !== -1) {
+    startIdx = firstBracket;
+  }
+
+  const lastBrace = cleaned.lastIndexOf("}");
+  const lastBracket = cleaned.lastIndexOf("]");
+  const endIdx = Math.max(lastBrace, lastBracket);
+
+  if (startIdx !== -1 && endIdx > startIdx) {
+    cleaned = cleaned.slice(startIdx, endIdx + 1);
+  }
+
+  // 3. Attempt first-pass parse
   try {
     return JSON.parse(cleaned) as T;
-  } catch (err: unknown) {
-    const error = err as Error;
-    console.error("Failed to parse JSON from Gemini response:", cleaned.slice(0, 300));
-    throw new Error(`JSON parsing failed: ${error.message}`);
+  } catch (initialErr: unknown) {
+    // 4. Secondary attempt: Sanitize common LLM quirks like trailing commas before closing braces/brackets
+    try {
+      const sanitized = cleaned.replace(/,\s*([\]}])/g, "$1");
+      return JSON.parse(sanitized) as T;
+    } catch {
+      const error = initialErr as Error;
+      console.error("Failed to parse JSON from Gemini response:", cleaned.slice(0, 300));
+      throw new Error(`JSON parsing failed: ${error.message}`);
+    }
   }
 }
